@@ -1,0 +1,119 @@
+service: op-api
+configValidationMode: warn
+
+custom:
+  stage: ${opt:stage, 'local'}
+
+  config: ${file(serverless.config.js)}
+  
+  serverless-offline:
+    httpPort: 4000
+    noPrependStageInUrl: true    
+
+  datadog:
+    addLayers: true
+
+    addExtension: true
+    apiKeySecretArn: ${self:custom.config.datadogApiKeySecretArn}
+    site: 'datadoghq.eu'
+
+    logLevel: 'INFO'
+    enableDDTracing: true # only if addExtension
+
+    enableTags: true
+    enabled: ${self:custom.config.ddEnabled, true}
+  
+provider:
+  name: aws
+  tags:
+    version: ${env:SHORT_SHA, 'na'}
+  stage: ${self:custom.stage}
+  profile: ${self:custom.config.awsProfile}
+  stackName: ${self:custom.config.stackName}
+  apiName: ${self:custom.config.apiName}
+  endpointType: ${self:custom.config.restApi.apiGatewayEndpointType}
+  logs:
+    restApi:
+      accessLogging: ${self:custom.config.restApi.accessLoggingEnabled}
+      executionLogging: ${self:custom.config.restApi.executionLoggingEnabled}
+  runtime: nodejs16.x
+  region: eu-west-2
+  environment: ${self:custom.config.env}
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - ssm:GetParameter*
+          Resource: ${self:custom.config.ssmArnPrefix}parameter/*
+        - Effect: Allow #required by Datadog plugin / lambda extension
+          Action:
+            - secretsmanager:GetSecretValue
+          Resource: 'arn:aws:secretsmanager:*:*:secret:DdApiKeySecret-*'
+
+functions:
+  app:
+    timeout: 30
+    handler: dist/app.handler
+    events:
+      - http: ANY /{proxy+}
+      - http:
+          path: /documents
+          method: post
+
+package:
+  patterns:
+    # Explicit include
+    - 'dist/**'
+    # Excluded directories
+    - '!.circleci/**'
+    - '!.git/**'
+    - '!.github/**'
+    - '!.husky/**'
+    - '!.s3/**'
+    - '!api-integration-tests/**'
+    - '!bin/**'
+    - '!coverage/**'
+    - '!docs/**'
+    - '!e2e/**'
+    - '!hooks/**'
+    - '!layers/**'
+    - '!migrations/**'
+    - '!resources/**'
+    - '!scripts/**'
+    - '!seed/**'
+    - '!src/**'
+    - '!types/**'
+    # Excluded files
+    - '!.env.*'
+    - '!.eslintignore'
+    - '!.eslintrc'
+    - '!.gitattributes'
+    - '!.gitignore'
+    - '!.lintstagedrc'
+    - '!.npmrc'
+    - '!.nvmrc'
+    - '!.prettierignore'
+    - '!.prettierrc'
+    - '!audit-ci.jsonc'
+    - '!aws_config'
+    - '!aws_credentials'
+    - '!docker-compose.yml'
+    - '!jest.config.js'
+    - '!npm-*.log'
+    - '!ormconfig.ts'
+    - '!README.md'
+    - '!s3-cors.xml'
+    - '!serverless.config.js'
+    - '!serverless.md'
+    - '!sonar-project.properties'
+    - '!tsconfig.json'
+    - '!yarn-*.log'
+    - '!yarn.lock'
+    # Exclude dependencies provided by Lambda Runtime
+    - '!node_modules/aws-sdk/**' # aws-sdk version 2.X.X
+  excludeDevDependencies: true
+
+plugins:
+  - serverless-plugin-datadog
+  - serverless-offline
